@@ -8,3 +8,5 @@ gunicorn
 pygame
 fuzzywuzzy
 websockets
+fastapi uvicorn
+pydantic
