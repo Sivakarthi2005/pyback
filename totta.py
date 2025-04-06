@@ -1,4 +1,6 @@
 import os
+os.environ["SDL_AUDIODRIVER"] = "dummy"
+import pygame
 import cv2
 import time
 import json
@@ -8,7 +10,6 @@ import threading
 import numpy as np
 import pandas as pd
 import websockets
-import pygame
 import speech_recognition as sr
 from gtts import gTTS
 from fuzzywuzzy import fuzz, process
