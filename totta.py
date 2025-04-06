@@ -1,17 +1,16 @@
 import os
-os.environ["SDL_AUDIODRIVER"] = "dummy"
-import pygame
 import cv2
 import time
 import json
 import queue
-import asyncio
 import threading
 import numpy as np
 import pandas as pd
-import websockets
-import speech_recognition as sr
-from gtts import gTTS
+import pygame
+from fastapi import FastAPI, BackgroundTasks, Request
+from pydantic import BaseModel
+from typing import Optional
+from fastapi.responses import JSONResponse
 from fuzzywuzzy import fuzz, process
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Dropout, Flatten, Conv2D, MaxPooling2D
@@ -21,17 +20,16 @@ from tensorflow.keras import Input
 audio_dir = "temp"
 os.makedirs(audio_dir, exist_ok=True)
 
-recognizer = sr.Recognizer()
 clients = set()
 speech_queue = queue.Queue()
 speech_lock = threading.Lock()
 pygame.mixer.init()
 
-# === Load Dataset ===
+# Load dataset
 df = pd.read_csv("agriculture_questions_complete.csv")
 df["question"] = df["question"].str.lower()
 
-# === Load Emotion Model ===
+# Load emotion model
 emotion_dict = {0: "Confused", 1: "Disgusted", 2: "Sleepy", 3: "Normal", 4: "Neutral", 5: "Disturbed", 6: "Thinking"}
 model = Sequential([
     Input(shape=(48, 48, 1)),
@@ -53,16 +51,25 @@ model.load_weights("model.h5")
 
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 sleepy_count = 0
+last_emotion = None
+
+# FastAPI App
+app = FastAPI()
+
+# === Models ===
+class SpeechInput(BaseModel):
+    text: str
 
 # === Helper Functions ===
 def get_best_answer(question):
-    best_match = process.extractOne(question, df["question"], scorer=fuzz.token_set_ratio)
+    best_match = process.extractOne(question.lower(), df["question"], scorer=fuzz.token_set_ratio)
     if best_match and best_match[1] >= 70:
         return df.loc[df["question"] == best_match[0], "answer"].values[0]
     return "I'm sorry, but I don't have an answer for that."
 
 def speak(text):
     with speech_lock:
+        from gtts import gTTS  # local import to prevent blocking startup
         tts = gTTS(text=text, lang='en')
         path = os.path.join(audio_dir, "output.mp3")
         tts.save(path)
@@ -71,43 +78,31 @@ def speak(text):
         while pygame.mixer.music.get_busy():
             time.sleep(0.1)
 
-def listen():
-    with sr.Microphone() as source:
-        print("Adjusting for ambient noise...")
-        recognizer.adjust_for_ambient_noise(source, duration=2)
-        print("Listening...")
-        try:
-            audio = recognizer.listen(source, timeout=8, phrase_time_limit=10)
-            return recognizer.recognize_google(audio).lower()
-        except:
-            return ""
-
 def emotion_detection():
-    global sleepy_count
+    global last_emotion, sleepy_count
     cap = cv2.VideoCapture(0)
     last_emotion_time = time.time()
-    last_emotion = None
+
     while True:
         ret, frame = cap.read()
         if not ret:
             continue
+
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         faces = face_cascade.detectMultiScale(gray, scaleFactor=1.3, minNeighbors=5)
+
         for (x, y, w, h) in faces:
             roi_gray = gray[y:y+h, x:x+w]
             cropped_img = np.expand_dims(np.expand_dims(cv2.resize(roi_gray, (48, 48)), -1), 0)
+
             if time.time() - last_emotion_time > 10:
-                prediction = model.predict(cropped_img)
+                prediction = model.predict(cropped_img, verbose=0)
                 maxindex = int(np.argmax(prediction))
                 last_emotion = emotion_dict[maxindex]
                 last_emotion_time = time.time()
-                for ws in clients:
-                    asyncio.run_coroutine_threadsafe(
-                        ws.send(json.dumps({"type": "emotion", "emotion": last_emotion})),
-                        asyncio.get_event_loop()
-                    )
+
                 if last_emotion == "Confused" or last_emotion == "Thinking":
-                    speech_queue.put("did you understand?")
+                    speech_queue.put("Did you understand?")
                 elif last_emotion == "Sleepy":
                     sleepy_count += 1
                     speech_queue.put("Please stay awake and focused.")
@@ -118,12 +113,14 @@ def emotion_detection():
                         return
                 elif last_emotion == "Disturbed":
                     speech_queue.put("Is something bothering you?")
-            if last_emotion:
-                cv2.putText(frame, last_emotion, (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+
+            cv2.putText(frame, last_emotion, (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
             cv2.rectangle(frame, (x, y), (x+w, y+h), (255, 0, 0), 2)
+
         cv2.imshow('Emotion Detection', frame)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
+
     cap.release()
     cv2.destroyAllWindows()
 
@@ -135,46 +132,32 @@ def speech_worker():
         speak(msg)
         speech_queue.task_done()
 
-# === WebSocket Logic ===
-async def handle_client(websocket):
-    clients.add(websocket)
-    print("Client connected.")
-    try:
-        while True:
-            await websocket.send(json.dumps({"type": "control", "action": "pause"}))
-            user_input = listen()
-            await websocket.send(json.dumps({"type": "speech", "text": user_input}))
+# === API Endpoints ===
 
-            if not user_input:
-                await websocket.send(json.dumps({"type": "control", "action": "resume"}))
-                await asyncio.sleep(2)
-                continue
+@app.post("/speech-input")
+async def speech_input(data: SpeechInput, background_tasks: BackgroundTasks):
+    user_input = data.text.lower()
 
-            if "bye" in user_input:
-                response = "Goodbye! Have a fantastic day!"
-                await websocket.send(json.dumps({"type": "response", "text": response}))
-                speak(response)
-                break
-            else:
-                answer = get_best_answer(user_input)
-                await websocket.send(json.dumps({"type": "response", "text": answer}))
-                speak(answer)
+    if "bye" in user_input:
+        response = "Goodbye! Have a fantastic day!"
+        background_tasks.add_task(speak, response)
+        return {"response": response}
+    else:
+        answer = get_best_answer(user_input)
+        background_tasks.add_task(speak, answer)
+        return {"response": answer}
 
-            await websocket.send(json.dumps({"type": "control", "action": "resume"}))
-            await asyncio.sleep(2)
-    except Exception as e:
-        print("Client error:", e)
-    finally:
-        clients.remove(websocket)
-        print("Client disconnected.")
+@app.get("/emotion")
+async def get_emotion():
+    return {"emotion": last_emotion}
 
-# === Main ===
-async def main():
-    print("WebSocket server starting on ws://localhost:8000")
-    async with websockets.serve(handle_client, "localhost", 8000):
-        await asyncio.Future()  # run forever
+# === Startup Tasks ===
 
-if __name__ == "__main__":
+@app.on_event("startup")
+def startup_event():
     threading.Thread(target=emotion_detection, daemon=True).start()
     threading.Thread(target=speech_worker, daemon=True).start()
-    asyncio.run(main())
+
+@app.get("/")
+async def root():
+    return {"message": "API is running. Use /speech-input or /emotion."}
