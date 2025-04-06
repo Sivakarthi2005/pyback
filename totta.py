@@ -49,7 +49,7 @@ model = Sequential([
     Dropout(0.5),
     Dense(7, activation='softmax')
 ])
-model.load_weights("C:\\Users\\sivakarthikeyan\\Downloads\\Emotion-detection\\Emotion-detection\\model.h5")
+model.load_weights("model.h5")
 
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 sleepy_count = 0
