@@ -5,3 +5,5 @@ pandas
 gTTS 
 SpeechRecognition
 gunicorn
+pygame
+fuzzywuzzy
