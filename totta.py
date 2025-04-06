@@ -27,7 +27,7 @@ speech_lock = threading.Lock()
 pygame.mixer.init()
 
 # === Load Dataset ===
-df = pd.read_csv("C:\\Users\\sivakarthikeyan\\Downloads\\agriculture_questions_complete.csv")
+df = pd.read_csv("agriculture_questions_complete.csv")
 df["question"] = df["question"].str.lower()
 
 # === Load Emotion Model ===
