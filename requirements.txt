@@ -3,7 +3,6 @@ gunicorn
 numpy
 pandas
 tensorflow
-pyaudio
 opencv-python
 fuzzywuzzy
 gTTS
