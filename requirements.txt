@@ -2,4 +2,5 @@ numpy
 opencv-python
 tensorflow
 pandas
-gTTS SpeechRecognition
+gTTS 
+SpeechRecognition
