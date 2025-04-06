@@ -1,0 +1,16 @@
+flask
+gunicorn
+numpy
+pandas
+tensorflow
+pyaudio
+cv2
+fuzzywuzzy
+gtts
+speech_recogonition
+pygame
+websockets
+threading
+asyncio
+queue
+time
