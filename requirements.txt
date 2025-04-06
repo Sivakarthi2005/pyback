@@ -4,7 +4,7 @@ numpy
 pandas
 tensorflow
 pyaudio
-opencv
+opencv-python
 fuzzywuzzy
 gtts
 speech_recogonition
