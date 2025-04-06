@@ -10,3 +10,4 @@ fuzzywuzzy
 websockets
 fastapi uvicorn
 pydantic
+typing
