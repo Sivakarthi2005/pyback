@@ -7,3 +7,6 @@ SpeechRecognition
 gunicorn
 pygame
 fuzzywuzzy
+websockets
+json
+asyncio
