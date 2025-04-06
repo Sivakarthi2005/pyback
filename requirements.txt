@@ -6,8 +6,8 @@ tensorflow
 pyaudio
 opencv-python
 fuzzywuzzy
-gtts
-speech_recogonition
+gTTS
+SpeechRecognition
 pygame
 websockets
 threading
