@@ -10,7 +10,3 @@ gTTS
 SpeechRecognition
 pygame
 websockets
-threading
-asyncio
-queue
-time
