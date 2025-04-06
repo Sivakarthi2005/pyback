@@ -4,3 +4,4 @@ tensorflow
 pandas
 gTTS 
 SpeechRecognition
+gunicorn
